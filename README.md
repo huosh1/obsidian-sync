@@ -1,4 +1,4 @@
-# Obsidian Vault Manager
+# Obsidian Synchronization
 
 A simple tool to automatically sync your Obsidian vault with Dropbox. Features a clean Apple-style interface with intelligent synchronization that only uploads/downloads changed files.
 
