@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-<<<<<<< HEAD
-Obsidian Vault Manager - Style Apple Minimaliste
-Synchronisation intelligente avec Dropbox - Design épuré
-=======
-Obsidian Vault Sync
 by huoshi
->>>>>>> 5f0dd44 (Compatibility with OS)
 """
 
 import customtkinter as ctk
@@ -35,15 +29,9 @@ from watchdog.events import FileSystemEventHandler
 
 # Configuration Dropbox
 DROPBOX_CONFIG = {
-<<<<<<< HEAD
-    "app_key": "YOUR APP KEY",
-    "app_secret": "YOUR APP SECRET",
-    "refresh_token": "YOUR REFRESH TOKEN"
-=======
     "app_key": "",
     "app_secret": "",
     "refresh_token": ""
->>>>>>> 5f0dd44 (Compatibility with OS)
 }
 
 # Configuration du thème
@@ -347,7 +335,7 @@ class ObsidianVaultManager:
         
         auto_sync_label = ctk.CTkLabel(
             auto_sync_frame,
-            text="Automatic Synchronization",
+            text="Auto Synchronization",
             font=ctk.CTkFont(size=14),
             text_color=COLORS['text']
         )
@@ -527,11 +515,7 @@ class ObsidianVaultManager:
         
         self.connection_status = ctk.CTkLabel(
             status_container,
-<<<<<<< HEAD
-            text="• Disconnected",
-=======
             text="• Déconnecté",
->>>>>>> 5f0dd44 (Compatibility with OS)
             font=ctk.CTkFont(size=12),
             text_color=COLORS['error']
         )
@@ -539,11 +523,7 @@ class ObsidianVaultManager:
         
         self.sync_status = ctk.CTkLabel(
             status_container,
-<<<<<<< HEAD
-            text="Ready",
-=======
             text="Prêt",
->>>>>>> 5f0dd44 (Compatibility with OS)
             font=ctk.CTkFont(size=12),
             text_color=COLORS['text_secondary']
         )
@@ -772,10 +752,6 @@ class ObsidianVaultManager:
         except Exception as e:
             raise Exception(f"Erreur upload {local_path}: {e}")
 
-<<<<<<< HEAD
-    def download_file(self, remote_path: str, local_path: str):
-        """Télécharge un fichier depuis Dropbox"""
-=======
     def sanitize_path(self, file_path: str) -> str:
         """Nettoie et normalise les chemins pour Dropbox"""
         import unicodedata
@@ -846,17 +822,12 @@ class ObsidianVaultManager:
 
     def download_file(self, remote_path: str, local_path: str):
         """Télécharge un fichier depuis Dropbox avec gestion des chemins nettoyés"""
->>>>>>> 5f0dd44 (Compatibility with OS)
         vault_path = Path(self.vault_path.get())
         full_local_path = vault_path / local_path
         
         try:
             full_local_path.parent.mkdir(parents=True, exist_ok=True)
             
-<<<<<<< HEAD
-            dbx = self.get_dropbox_client()
-            metadata, response = dbx.files_download(remote_path)
-=======
             # Essaie d'abord avec le chemin original
             dbx = self.get_dropbox_client()
             try:
@@ -865,7 +836,6 @@ class ObsidianVaultManager:
                 # Si échec, essaie avec le chemin nettoyé
                 clean_remote_path = self.sanitize_path(remote_path)
                 metadata, response = dbx.files_download(clean_remote_path)
->>>>>>> 5f0dd44 (Compatibility with OS)
             
             with open(full_local_path, 'wb') as f:
                 f.write(response.content)
@@ -877,8 +847,6 @@ class ObsidianVaultManager:
         except Exception as e:
             raise Exception(f"Erreur download {local_path}: {e}")
 
-<<<<<<< HEAD
-=======
     def should_ignore_file(self, file_path: str) -> bool:
         """Vérifie si un fichier doit être ignoré selon les patterns"""
         ignore_patterns = self.config.get('ignore_patterns', [])
@@ -906,7 +874,6 @@ class ObsidianVaultManager:
         
         return False
 
->>>>>>> 5f0dd44 (Compatibility with OS)
     def browse_vault_folder(self):
         """Sélection du dossier vault"""
         folder = filedialog.askdirectory(title="Sélectionner le dossier Vault Obsidian")
