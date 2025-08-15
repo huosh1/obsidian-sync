@@ -12,7 +12,6 @@ This application provides seamless synchronization between your local Obsidian v
 
 **Windows users** should download Python from the official website at python.org. During installation, make sure to check the "Add Python to PATH" option. This allows you to run Python commands from any folder.
 
-```
 
 ### Installing Dependencies
 
@@ -23,10 +22,6 @@ pip install customtkinter dropbox schedule watchdog
 ```
 
 If you encounter permission errors on Linux, you might need to use `pip3` instead of `pip`, or add `--user` flag:
-
-```bash
-pip3 install --user customtkinter dropbox schedule watchdog
-```
 
 ### Getting the Application
 
@@ -109,8 +104,6 @@ Run the application by opening a terminal in the folder containing the script an
 python obsidian_vault_manager.py
 ```
 
-On some Linux systems, you might need to use `python3` instead of `python`.
-
 ### Initial Setup
 
 When the app opens, use the "Browse" button to select your Obsidian vault folder. This is typically where your `.obsidian` folder is located. The app will remember this location for future use.
@@ -124,14 +117,6 @@ You have two automatic sync options available. "Automatic synchronization" runs 
 ### Manual Operations
 
 The main "Synchronize" button performs a complete two-way sync, analyzing differences and updating files as needed. "Push Local" only uploads your local changes to Dropbox. "Pull Remote" only downloads changes from Dropbox. "Snapshot" creates a timestamped backup of your entire vault.
-
-## Troubleshooting
-
-If you get permission errors on Linux, try running with `python3` instead of `python`. Make sure all dependencies are installed correctly by running the pip install command again.
-
-For Dropbox connection issues, verify your app credentials are correct and that you've enabled the required permissions in the Dropbox App Console.
-
-If the interface doesn't appear, make sure you have `python3-tkinter` installed on Linux systems.
 
 ## File Organization
 
