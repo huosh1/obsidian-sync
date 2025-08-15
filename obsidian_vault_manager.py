@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+<<<<<<< HEAD
 Obsidian Vault Manager - Style Apple Minimaliste
 Synchronisation intelligente avec Dropbox - Design épuré
+=======
+Obsidian Vault Sync
+by huoshi
+>>>>>>> 5f0dd44 (Compatibility with OS)
 """
 
 import customtkinter as ctk
@@ -30,9 +35,15 @@ from watchdog.events import FileSystemEventHandler
 
 # Configuration Dropbox
 DROPBOX_CONFIG = {
+<<<<<<< HEAD
     "app_key": "YOUR APP KEY",
     "app_secret": "YOUR APP SECRET",
     "refresh_token": "YOUR REFRESH TOKEN"
+=======
+    "app_key": "",
+    "app_secret": "",
+    "refresh_token": ""
+>>>>>>> 5f0dd44 (Compatibility with OS)
 }
 
 # Configuration du thème
@@ -516,7 +527,11 @@ class ObsidianVaultManager:
         
         self.connection_status = ctk.CTkLabel(
             status_container,
+<<<<<<< HEAD
             text="• Disconnected",
+=======
+            text="• Déconnecté",
+>>>>>>> 5f0dd44 (Compatibility with OS)
             font=ctk.CTkFont(size=12),
             text_color=COLORS['error']
         )
@@ -524,7 +539,11 @@ class ObsidianVaultManager:
         
         self.sync_status = ctk.CTkLabel(
             status_container,
+<<<<<<< HEAD
             text="Ready",
+=======
+            text="Prêt",
+>>>>>>> 5f0dd44 (Compatibility with OS)
             font=ctk.CTkFont(size=12),
             text_color=COLORS['text_secondary']
         )
@@ -753,16 +772,100 @@ class ObsidianVaultManager:
         except Exception as e:
             raise Exception(f"Erreur upload {local_path}: {e}")
 
+<<<<<<< HEAD
     def download_file(self, remote_path: str, local_path: str):
         """Télécharge un fichier depuis Dropbox"""
+=======
+    def sanitize_path(self, file_path: str) -> str:
+        """Nettoie et normalise les chemins pour Dropbox"""
+        import unicodedata
+        import re
+        
+        # Convertit les backslashes Windows en forward slashes
+        file_path = file_path.replace('\\', '/')
+        
+        # Supprime les emojis et caractères problématiques
+        # Garde seulement les caractères alphanumériques, espaces, tirets, underscores, points
+        file_path = re.sub(r'[^\w\s\-_./()àáâãäåæçèéêëìíîïñòóôõöøùúûüýÿ]', '', file_path)
+        
+        # Normalise les caractères Unicode (décompose les accents)
+        file_path = unicodedata.normalize('NFD', file_path)
+        file_path = ''.join(c for c in file_path if unicodedata.category(c) != 'Mn')
+        
+        # Remplace les espaces multiples par un seul
+        file_path = re.sub(r'\s+', ' ', file_path)
+        
+        # Nettoie les caractères problématiques restants
+        file_path = file_path.replace(' + ', '_')  # "tar + xargs" -> "tar_xargs"
+        file_path = file_path.replace('(', '_').replace(')', '_')  # Parenthèses
+        
+        # Supprime les underscores/espaces en début/fin de segments
+        parts = file_path.split('/')
+        cleaned_parts = []
+        for part in parts:
+            part = part.strip(' _-')
+            if part:  # Ignore les parties vides
+                cleaned_parts.append(part)
+        
+        file_path = '/'.join(cleaned_parts)
+        
+        # S'assure que le chemin commence par / pour Dropbox
+        if file_path and not file_path.startswith('/'):
+            file_path = '/' + file_path
+        
+        # S'assure que le chemin n'est pas vide
+        if not file_path or file_path == '/':
+            file_path = "/untitled_file"
+        
+        return file_path
+
+    def upload_file(self, local_path: str, remote_path: str):
+        """Upload un fichier vers Dropbox avec nettoyage du chemin"""
+        vault_path = Path(self.vault_path.get())
+        full_local_path = vault_path / local_path
+        
+        try:
+            # Nettoie le chemin distant
+            clean_remote_path = self.sanitize_path(remote_path)
+            
+            # Si le chemin a été modifié, informe l'utilisateur
+            if clean_remote_path != remote_path:
+                self.log_message(f"Chemin nettoyé: {remote_path} → {clean_remote_path}")
+            
+            dbx = self.get_dropbox_client()
+            with open(full_local_path, 'rb') as f:
+                dbx.files_upload(f.read(), clean_remote_path, mode=dropbox.files.WriteMode.overwrite)
+            
+            metadata = self.get_file_metadata(str(full_local_path))
+            if metadata:
+                # Sauvegarde avec le chemin original pour la cohérence locale
+                self.db.save_file_metadata(metadata)
+        
+        except Exception as e:
+            raise Exception(f"Erreur upload {local_path}: {e}")
+
+    def download_file(self, remote_path: str, local_path: str):
+        """Télécharge un fichier depuis Dropbox avec gestion des chemins nettoyés"""
+>>>>>>> 5f0dd44 (Compatibility with OS)
         vault_path = Path(self.vault_path.get())
         full_local_path = vault_path / local_path
         
         try:
             full_local_path.parent.mkdir(parents=True, exist_ok=True)
             
+<<<<<<< HEAD
             dbx = self.get_dropbox_client()
             metadata, response = dbx.files_download(remote_path)
+=======
+            # Essaie d'abord avec le chemin original
+            dbx = self.get_dropbox_client()
+            try:
+                metadata, response = dbx.files_download(remote_path)
+            except:
+                # Si échec, essaie avec le chemin nettoyé
+                clean_remote_path = self.sanitize_path(remote_path)
+                metadata, response = dbx.files_download(clean_remote_path)
+>>>>>>> 5f0dd44 (Compatibility with OS)
             
             with open(full_local_path, 'wb') as f:
                 f.write(response.content)
@@ -774,6 +877,36 @@ class ObsidianVaultManager:
         except Exception as e:
             raise Exception(f"Erreur download {local_path}: {e}")
 
+<<<<<<< HEAD
+=======
+    def should_ignore_file(self, file_path: str) -> bool:
+        """Vérifie si un fichier doit être ignoré selon les patterns"""
+        ignore_patterns = self.config.get('ignore_patterns', [])
+        
+        # Ajoute des patterns pour les fichiers problématiques
+        default_ignores = [
+            '*.tmp',
+            '*.bak',
+            '.DS_Store',
+            'Thumbs.db',
+            '.obsidian/workspace*',  # Souvent modifié et pas essentiel
+            '.trash/*'
+        ]
+        
+        all_patterns = ignore_patterns + default_ignores
+        
+        for pattern in all_patterns:
+            if fnmatch.fnmatch(file_path, pattern):
+                return True
+        
+        # Ignore les fichiers avec des noms très problématiques
+        if any(char in file_path for char in ['📁', '🗂️', '📄']) or len(file_path) > 255:
+            self.log_message(f"Fichier ignoré (caractères problématiques): {file_path}")
+            return True
+        
+        return False
+
+>>>>>>> 5f0dd44 (Compatibility with OS)
     def browse_vault_folder(self):
         """Sélection du dossier vault"""
         folder = filedialog.askdirectory(title="Sélectionner le dossier Vault Obsidian")
