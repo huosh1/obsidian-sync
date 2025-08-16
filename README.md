@@ -1,6 +1,7 @@
 # Obsidian Vault Manager
 
 A comprehensive tool to automatically sync your Obsidian vault with Dropbox. Features a clean Apple-style interface with intelligent synchronization, file deletion management, and real-time monitoring.
+Big advantage is that .obsidian with all themes, community plugins are in this folder. Then, when you sync on another desktop, you will have all your differents plugins.
 
 ## What it does
 
