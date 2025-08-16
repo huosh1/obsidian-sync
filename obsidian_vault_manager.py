@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 by huoshi
+Version améliorée avec gestion des suppressions
 """
 
 import customtkinter as ctk
