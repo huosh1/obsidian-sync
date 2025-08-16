@@ -17,7 +17,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import logging
 import schedule
 import dropbox
@@ -47,7 +47,8 @@ COLORS = {
     'background': '#F2F2F7',
     'surface': '#FFFFFF',
     'text': '#1C1C1E',
-    'text_secondary': '#8E8E93'
+    'text_secondary': '#8E8E93',
+    'warning': '#FF9500'
 }
 
 @dataclass
@@ -62,10 +63,243 @@ class FileMetadata:
 @dataclass
 class SyncAction:
     """Action de synchronisation à effectuer"""
-    action: str
+    action: str  # 'upload', 'download', 'delete_local', 'delete_remote'
     local_path: str
     remote_path: str
     reason: str
+
+@dataclass
+class DeletionCandidate:
+    """Fichier candidat à la suppression"""
+    path: str
+    location: str  # 'local' ou 'remote'
+    last_seen: datetime
+    file_type: str
+
+class DeletionConfirmDialog:
+    """Dialog de confirmation pour les suppressions"""
+    
+    def __init__(self, parent, deletions: List[DeletionCandidate]):
+        self.result = None
+        self.deletions = deletions
+        
+        # Fenêtre principale
+        self.dialog = ctk.CTkToplevel(parent)
+        self.dialog.title("Confirmer les suppressions")
+        self.dialog.geometry("600x500")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Centrer la fenêtre
+        self.dialog.geometry("+%d+%d" % (
+            parent.winfo_rootx() + 50,
+            parent.winfo_rooty() + 50
+        ))
+        
+        self.create_ui()
+        
+    def create_ui(self):
+        """Crée l'interface du dialog"""
+        # Header
+        header_frame = ctk.CTkFrame(self.dialog, fg_color="white", corner_radius=0)
+        header_frame.pack(fill="x", padx=0, pady=0)
+        
+        title_label = ctk.CTkLabel(
+            header_frame,
+            text="⚠️ Fichiers supprimés détectés",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS['warning']
+        )
+        title_label.pack(pady=15)
+        
+        desc_label = ctk.CTkLabel(
+            header_frame,
+            text="Les fichiers suivants ont été supprimés localement.\nVoulez-vous les supprimer définitivement du cloud ?",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS['text_secondary']
+        )
+        desc_label.pack(pady=(0, 15))
+        
+        # Liste des fichiers
+        list_frame = ctk.CTkFrame(self.dialog, fg_color="white")
+        list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        list_title = ctk.CTkLabel(
+            list_frame,
+            text="Fichiers à supprimer :",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS['text']
+        )
+        list_title.pack(anchor="w", padx=20, pady=(20, 10))
+        
+        # Scrollable frame pour la liste
+        self.scrollable_frame = ctk.CTkScrollableFrame(
+            list_frame,
+            fg_color="#F8F8F8",
+            corner_radius=8
+        )
+        self.scrollable_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Checkboxes pour chaque fichier
+        self.checkboxes = {}
+        for deletion in self.deletions:
+            self.create_file_item(deletion)
+        
+        # Boutons de sélection rapide
+        select_frame = ctk.CTkFrame(list_frame, fg_color="transparent")
+        select_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        select_all_btn = ctk.CTkButton(
+            select_frame,
+            text="Tout sélectionner",
+            width=120,
+            height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS['secondary'],
+            hover_color="#6D6D70",
+            command=self.select_all
+        )
+        select_all_btn.pack(side="left", padx=(0, 10))
+        
+        select_none_btn = ctk.CTkButton(
+            select_frame,
+            text="Tout désélectionner",
+            width=120,
+            height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS['secondary'],
+            hover_color="#6D6D70",
+            command=self.select_none
+        )
+        select_none_btn.pack(side="left")
+        
+        # Boutons d'action
+        button_frame = ctk.CTkFrame(self.dialog, fg_color="white", corner_radius=0)
+        button_frame.pack(fill="x", padx=0, pady=0)
+        
+        buttons_container = ctk.CTkFrame(button_frame, fg_color="transparent")
+        buttons_container.pack(pady=20)
+        
+        cancel_btn = ctk.CTkButton(
+            buttons_container,
+            text="Annuler",
+            width=120,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS['secondary'],
+            hover_color="#6D6D70",
+            command=self.cancel
+        )
+        cancel_btn.pack(side="left", padx=(0, 15))
+        
+        restore_btn = ctk.CTkButton(
+            buttons_container,
+            text="Restaurer",
+            width=120,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS['primary'],
+            hover_color="#0051D5",
+            command=self.restore_files
+        )
+        restore_btn.pack(side="left", padx=(0, 15))
+        
+        delete_btn = ctk.CTkButton(
+            buttons_container,
+            text="Supprimer",
+            width=120,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS['error'],
+            hover_color="#D60000",
+            command=self.confirm_deletion
+        )
+        delete_btn.pack(side="right")
+        
+    def create_file_item(self, deletion: DeletionCandidate):
+        """Crée un item pour un fichier"""
+        item_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="white", corner_radius=8)
+        item_frame.pack(fill="x", padx=5, pady=2)
+        
+        # Checkbox
+        var = tk.BooleanVar(value=True)
+        checkbox = ctk.CTkCheckBox(
+            item_frame,
+            text="",
+            variable=var,
+            width=20
+        )
+        checkbox.pack(side="left", padx=(15, 10), pady=10)
+        
+        # Info fichier
+        info_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        info_frame.pack(side="left", fill="x", expand=True, pady=10)
+        
+        # Nom du fichier
+        name_label = ctk.CTkLabel(
+            info_frame,
+            text=os.path.basename(deletion.path),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=COLORS['text'],
+            anchor="w"
+        )
+        name_label.pack(anchor="w")
+        
+        # Chemin et info
+        path_text = deletion.path
+        if len(path_text) > 60:
+            path_text = "..." + path_text[-57:]
+        
+        info_text = f"{path_text} • {deletion.file_type}"
+        info_label = ctk.CTkLabel(
+            info_frame,
+            text=info_text,
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS['text_secondary'],
+            anchor="w"
+        )
+        info_label.pack(anchor="w")
+        
+        self.checkboxes[deletion.path] = var
+        
+    def select_all(self):
+        """Sélectionne tous les fichiers"""
+        for var in self.checkboxes.values():
+            var.set(True)
+            
+    def select_none(self):
+        """Désélectionne tous les fichiers"""
+        for var in self.checkboxes.values():
+            var.set(False)
+            
+    def get_selected_deletions(self) -> List[str]:
+        """Retourne la liste des fichiers sélectionnés pour suppression"""
+        return [path for path, var in self.checkboxes.items() if var.get()]
+        
+    def cancel(self):
+        """Annule l'opération"""
+        self.result = "cancel"
+        self.dialog.destroy()
+        
+    def restore_files(self):
+        """Restaure les fichiers sélectionnés"""
+        selected = self.get_selected_deletions()
+        self.result = ("restore", selected)
+        self.dialog.destroy()
+        
+    def confirm_deletion(self):
+        """Confirme la suppression"""
+        selected = self.get_selected_deletions()
+        if not selected:
+            messagebox.showwarning("Aucun fichier", "Aucun fichier sélectionné pour suppression")
+            return
+            
+        if messagebox.askyesno(
+            "Confirmation", 
+            f"Êtes-vous sûr de vouloir supprimer définitivement {len(selected)} fichier(s) ?\n\nCette action est irréversible."
+        ):
+            self.result = ("delete", selected)
+            self.dialog.destroy()
 
 class VaultDatabase:
     """Base de données SQLite pour gérer l'historique et métadonnées"""
@@ -84,7 +318,8 @@ class VaultDatabase:
                     mtime REAL,
                     hash TEXT,
                     version INTEGER DEFAULT 1,
-                    last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'active'
                 );
                 
                 CREATE TABLE IF NOT EXISTS sync_history (
@@ -95,6 +330,14 @@ class VaultDatabase:
                     status TEXT,
                     details TEXT
                 );
+                
+                CREATE TABLE IF NOT EXISTS deleted_files (
+                    path TEXT PRIMARY KEY,
+                    deleted_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    deletion_confirmed BOOLEAN DEFAULT 0,
+                    original_size INTEGER,
+                    original_hash TEXT
+                );
             """)
     
     def save_file_metadata(self, metadata: FileMetadata):
@@ -102,8 +345,8 @@ class VaultDatabase:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO file_metadata 
-                (path, size, mtime, hash, version) 
-                VALUES (?, ?, ?, ?, ?)
+                (path, size, mtime, hash, version, status) 
+                VALUES (?, ?, ?, ?, ?, 'active')
             """, (metadata.path, metadata.size, metadata.mtime, metadata.hash, metadata.version))
     
     def get_file_metadata(self, path: str) -> Optional[FileMetadata]:
@@ -111,12 +354,111 @@ class VaultDatabase:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute("""
                 SELECT path, size, mtime, hash, version 
-                FROM file_metadata WHERE path = ?
+                FROM file_metadata WHERE path = ? AND status = 'active'
             """, (path,)).fetchone()
             
             if row:
                 return FileMetadata(*row)
         return None
+    
+    def mark_file_deleted(self, path: str, size: int = 0, hash_val: str = ""):
+        """Marque un fichier comme supprimé localement"""
+        with sqlite3.connect(self.db_path) as conn:
+            # Marque le fichier comme supprimé dans file_metadata
+            conn.execute("""
+                UPDATE file_metadata 
+                SET status = 'deleted_local', last_sync = CURRENT_TIMESTAMP
+                WHERE path = ?
+            """, (path,))
+            
+            # Ajoute dans deleted_files
+            conn.execute("""
+                INSERT OR REPLACE INTO deleted_files 
+                (path, original_size, original_hash) 
+                VALUES (?, ?, ?)
+            """, (path, size, hash_val))
+    
+    def confirm_file_deletion(self, path: str):
+        """Confirme la suppression définitive d'un fichier"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE deleted_files 
+                SET deletion_confirmed = 1 
+                WHERE path = ?
+            """, (path,))
+            
+            conn.execute("""
+                DELETE FROM file_metadata WHERE path = ?
+            """, (path,))
+    
+    def restore_file_from_deletion(self, path: str):
+        """Restaure un fichier de l'état supprimé"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE file_metadata 
+                SET status = 'active' 
+                WHERE path = ?
+            """, (path,))
+            
+            conn.execute("""
+                DELETE FROM deleted_files WHERE path = ?
+            """, (path,))
+    
+    def get_pending_deletions(self) -> List[DeletionCandidate]:
+        """Récupère les fichiers en attente de suppression"""
+        candidates = []
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("""
+                SELECT d.path, d.deleted_timestamp, m.size
+                FROM deleted_files d
+                LEFT JOIN file_metadata m ON d.path = m.path
+                WHERE d.deletion_confirmed = 0
+                ORDER BY d.deleted_timestamp DESC
+            """).fetchall()
+            
+            for row in rows:
+                path, deleted_timestamp, size = row
+                candidates.append(DeletionCandidate(
+                    path=path,
+                    location='local',
+                    last_seen=datetime.fromisoformat(deleted_timestamp.replace('Z', '+00:00')) if isinstance(deleted_timestamp, str) else deleted_timestamp,
+                    file_type=self._get_file_type(path, size or 0)
+                ))
+        
+        return candidates
+    
+    def _get_file_type(self, path: str, size: int) -> str:
+        """Détermine le type de fichier"""
+        ext = os.path.splitext(path)[1].lower()
+        size_str = self._format_size(size)
+        
+        if ext in ['.md', '.txt']:
+            return f"Document • {size_str}"
+        elif ext in ['.png', '.jpg', '.jpeg', '.gif']:
+            return f"Image • {size_str}"
+        elif ext in ['.pdf']:
+            return f"PDF • {size_str}"
+        else:
+            return f"Fichier {ext} • {size_str}"
+    
+    def _format_size(self, size: int) -> str:
+        """Formate la taille du fichier"""
+        if size < 1024:
+            return f"{size} B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size / (1024 * 1024):.1f} MB"
+    
+    def get_all_tracked_files(self) -> Set[str]:
+        """Récupère tous les fichiers actuellement suivis et actifs"""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("""
+                SELECT path FROM file_metadata
+                WHERE status = 'active'
+            """).fetchall()
+            
+            return {row[0] for row in rows}
     
     def log_sync_action(self, action: str, file_path: str, status: str, details: str = ""):
         """Enregistre une action de synchronisation"""
@@ -148,6 +490,18 @@ class FileWatcher(FileSystemEventHandler):
         threading.Timer(self.debounce_delay, 
                        self.vault_manager.schedule_file_sync, 
                        [event.src_path]).start()
+    
+    def on_deleted(self, event):
+        """Fichier supprimé"""
+        if event.is_directory:
+            return
+        
+        vault_path = Path(self.vault_manager.vault_path.get())
+        try:
+            relative_path = os.path.relpath(event.src_path, vault_path)
+            self.vault_manager.handle_file_deletion(relative_path)
+        except Exception as e:
+            self.vault_manager.log_message(f"Erreur détection suppression: {e}")
 
 class ObsidianVaultManager:
     """Gestionnaire principal du vault Obsidian"""
@@ -200,7 +554,8 @@ class ObsidianVaultManager:
             'auto_sync': False,
             'real_time_sync': False,
             'sync_interval': 30,
-            'ignore_patterns': ['.obsidian/workspace*', '.trash/*', '*.tmp']
+            'ignore_patterns': ['.obsidian/workspace*', '.trash/*', '*.tmp'],
+            'auto_confirm_deletions': False  # Nouvelle option
         }
         
         try:
@@ -220,7 +575,8 @@ class ObsidianVaultManager:
             'auto_sync': self.auto_sync.get(),
             'real_time_sync': self.real_time_sync.get(),
             'sync_interval': self.config.get('sync_interval', 30),
-            'ignore_patterns': self.config.get('ignore_patterns', [])
+            'ignore_patterns': self.config.get('ignore_patterns', []),
+            'auto_confirm_deletions': self.config.get('auto_confirm_deletions', False)
         }
         
         try:
@@ -230,6 +586,91 @@ class ObsidianVaultManager:
             self.log_message("Configuration sauvegardée")
         except Exception as e:
             self.log_message(f"Erreur sauvegarde config: {e}")
+
+    def handle_file_deletion(self, relative_path: str):
+        """Gère la suppression d'un fichier"""
+        if self.should_ignore_file(relative_path):
+            return
+        
+        # Récupère les métadonnées existantes
+        metadata = self.db.get_file_metadata(relative_path)
+        if metadata:
+            self.db.mark_file_deleted(
+                relative_path, 
+                metadata.size, 
+                metadata.hash
+            )
+            self.log_message(f"🗑️ Fichier supprimé détecté: {relative_path}")
+
+    def check_and_handle_deletions(self) -> bool:
+        """Vérifie et gère les suppressions en attente"""
+        pending_deletions = self.db.get_pending_deletions()
+        
+        if not pending_deletions:
+            return False
+        
+        self.log_message(f"Détecté {len(pending_deletions)} fichier(s) supprimé(s)")
+        
+        # Si auto-confirmation activée, supprime automatiquement
+        if self.config.get('auto_confirm_deletions', False):
+            for deletion in pending_deletions:
+                self.confirm_and_delete_remote(deletion.path)
+            return True
+        
+        # Sinon, affiche le dialog de confirmation
+        dialog = DeletionConfirmDialog(self.root, pending_deletions)
+        self.root.wait_window(dialog.dialog)
+        
+        if dialog.result:
+            action, selected_files = dialog.result
+            
+            if action == "delete":
+                for file_path in selected_files:
+                    self.confirm_and_delete_remote(file_path)
+                    
+            elif action == "restore":
+                for file_path in selected_files:
+                    self.restore_deleted_file(file_path)
+        
+        return True
+
+    def confirm_and_delete_remote(self, file_path: str):
+        """Confirme et supprime un fichier du cloud"""
+        try:
+            dbx = self.get_dropbox_client()
+            remote_path = f"/vault/{file_path}"
+            
+            # Supprime du cloud
+            dbx.files_delete_v2(remote_path)
+            
+            # Confirme dans la DB
+            self.db.confirm_file_deletion(file_path)
+            
+            self.log_message(f"🗑️ Supprimé du cloud: {file_path}")
+            self.db.log_sync_action("delete_remote", file_path, "success", "Suppression confirmée")
+            
+        except Exception as e:
+            self.log_message(f"✗ Erreur suppression {file_path}: {e}")
+            self.db.log_sync_action("delete_remote", file_path, "error", str(e))
+
+    def restore_deleted_file(self, file_path: str):
+        """Restaure un fichier supprimé depuis le cloud"""
+        try:
+            dbx = self.get_dropbox_client()
+            remote_path = f"/vault/{file_path}"
+            
+            # Télécharge le fichier
+            self.download_file(remote_path, file_path)
+            
+            # Restaure dans la DB
+            self.db.restore_file_from_deletion(file_path)
+            
+            self.log_message(f"↻ Fichier restauré: {file_path}")
+            self.db.log_sync_action("restore", file_path, "success", "Fichier restauré depuis le cloud")
+            
+        except Exception as e:
+            self.log_message(f"✗ Erreur restauration {file_path}: {e}")
+            self.db.log_sync_action("restore", file_path, "error", str(e))
 
     def create_interface(self):
         """Crée l'interface utilisateur"""
@@ -352,7 +793,7 @@ class ObsidianVaultManager:
         
         # Temps réel
         real_time_frame = ctk.CTkFrame(options_container, fg_color="transparent")
-        real_time_frame.pack(fill="x")
+        real_time_frame.pack(fill="x", pady=(0, 10))
         
         real_time_label = ctk.CTkLabel(
             real_time_frame,
@@ -370,6 +811,28 @@ class ObsidianVaultManager:
             progress_color=COLORS['primary']
         )
         self.real_time_switch.pack(side="right")
+        
+        # Auto-confirm deletions
+        auto_delete_frame = ctk.CTkFrame(options_container, fg_color="transparent")
+        auto_delete_frame.pack(fill="x")
+        
+        auto_delete_label = ctk.CTkLabel(
+            auto_delete_frame,
+            text="Auto-confirm file deletions",
+            font=ctk.CTkFont(size=14),
+            text_color=COLORS['text']
+        )
+        auto_delete_label.pack(side="left")
+        
+        self.auto_delete_var = tk.BooleanVar(value=self.config.get('auto_confirm_deletions', False))
+        self.auto_delete_switch = ctk.CTkSwitch(
+            auto_delete_frame,
+            text="",
+            variable=self.auto_delete_var,
+            command=self.toggle_auto_delete,
+            progress_color=COLORS['primary']
+        )
+        self.auto_delete_switch.pack(side="right")
 
     def create_actions_section(self, parent):
         """Section actions principales"""
@@ -417,7 +880,7 @@ class ObsidianVaultManager:
         
         # Ligne 2
         row2 = ctk.CTkFrame(buttons_container, fg_color="transparent")
-        row2.pack(fill="x")
+        row2.pack(fill="x", pady=(0, 10))
         
         self.push_btn = ctk.CTkButton(
             row2,
@@ -432,7 +895,7 @@ class ObsidianVaultManager:
             corner_radius=8,
             command=self.push_local_changes
         )
-        self.push_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.push_btn.pack(side="left", fill="x", expand=True, padx=(0, 2.5))
         
         self.pull_btn = ctk.CTkButton(
             row2,
@@ -462,7 +925,35 @@ class ObsidianVaultManager:
             corner_radius=8,
             command=self.create_snapshot
         )
-        self.snapshot_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        self.snapshot_btn.pack(side="right", fill="x", expand=True, padx=(2.5, 0))
+        
+        # Ligne 3 - Gestion suppressions
+        row3 = ctk.CTkFrame(buttons_container, fg_color="transparent")
+        row3.pack(fill="x", pady=(10, 0))
+        
+        self.check_deletions_btn = ctk.CTkButton(
+            row3,
+            text="🗑️ Check Deletions",
+            height=36,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS['warning'],
+            hover_color="#E6850E",
+            corner_radius=8,
+            command=self.manual_check_deletions
+        )
+        self.check_deletions_btn.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        self.init_tracking_btn = ctk.CTkButton(
+            row3,
+            text="📁 Init Tracking",
+            height=36,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS['secondary'],
+            hover_color="#6D6D70",
+            corner_radius=8,
+            command=self.init_file_tracking
+        )
+        self.init_tracking_btn.pack(side="right", fill="x", expand=True, padx=(5, 0))
 
     def create_progress_section(self, parent):
         """Section progress et logs"""
@@ -528,6 +1019,75 @@ class ObsidianVaultManager:
             text_color=COLORS['text_secondary']
         )
         self.sync_status.pack(side="right", pady=10)
+
+    def toggle_auto_delete(self):
+        """Active/désactive la confirmation automatique des suppressions"""
+        self.config['auto_confirm_deletions'] = self.auto_delete_var.get()
+        self.save_config()
+        
+        if self.auto_delete_var.get():
+            self.log_message("⚠️ Auto-confirmation suppressions activée")
+        else:
+            self.log_message("🛡️ Auto-confirmation suppressions désactivée")
+
+    def init_file_tracking(self):
+        """Initialise le tracking de tous les fichiers existants"""
+        def init_thread():
+            try:
+                self.init_tracking_btn.configure(state="disabled", text="Initialisation...")
+                self.log_message("📁 Initialisation du tracking des fichiers...")
+                
+                vault_path = Path(self.vault_path.get())
+                if not vault_path.exists():
+                    messagebox.showerror("Erreur", "Dossier vault introuvable")
+                    return
+                
+                count = 0
+                for file_path in vault_path.rglob('*'):
+                    if file_path.is_file():
+                        relative_path = str(file_path.relative_to(vault_path)).replace('\\', '/')
+                        if not self.should_ignore_file(relative_path):
+                            metadata = self.get_file_metadata(str(file_path))
+                            if metadata:
+                                metadata.path = relative_path
+                                self.db.save_file_metadata(metadata)
+                                count += 1
+                
+                self.log_message(f"✅ Tracking initialisé pour {count} fichiers")
+                messagebox.showinfo("Succès", f"Tracking initialisé pour {count} fichiers")
+                
+            except Exception as e:
+                self.log_message(f"✗ Erreur initialisation tracking: {e}")
+                messagebox.showerror("Erreur", f"Erreur lors de l'initialisation: {e}")
+            finally:
+                self.init_tracking_btn.configure(state="normal", text="📁 Init Tracking")
+        
+        threading.Thread(target=init_thread, daemon=True).start()
+
+    def manual_check_deletions(self):
+        """Vérifie manuellement les suppressions en attente"""
+        def check_thread():
+            try:
+                self.check_deletions_btn.configure(state="disabled", text="Vérification...")
+                
+                # Force un scan des fichiers locaux pour détecter les suppressions
+                self.log_message("🔍 Scan des fichiers pour détecter les suppressions...")
+                self.scan_local_files()
+                
+                # Puis vérifie les suppressions en attente
+                had_deletions = self.check_and_handle_deletions()
+                
+                if not had_deletions:
+                    self.log_message("✅ Aucune suppression en attente")
+                    messagebox.showinfo("Info", "Aucun fichier supprimé en attente")
+                
+            except Exception as e:
+                self.log_message(f"✗ Erreur vérification suppressions: {e}")
+                messagebox.showerror("Erreur", f"Erreur lors de la vérification: {e}")
+            finally:
+                self.check_deletions_btn.configure(state="normal", text="🗑️ Check Deletions")
+        
+        threading.Thread(target=check_thread, daemon=True).start()
 
     def get_dropbox_client(self):
         """Obtient le client Dropbox"""
@@ -596,26 +1156,76 @@ class ObsidianVaultManager:
     def should_ignore_file(self, file_path: str) -> bool:
         """Vérifie si un fichier doit être ignoré"""
         ignore_patterns = self.config.get('ignore_patterns', [])
-        for pattern in ignore_patterns:
+        
+        # Ajoute des patterns pour les fichiers problématiques
+        default_ignores = [
+            '*.tmp',
+            '*.bak',
+            '.DS_Store',
+            'Thumbs.db',
+            '.obsidian/workspace*',  # Souvent modifié et pas essentiel
+            '.trash/*'
+        ]
+        
+        all_patterns = ignore_patterns + default_ignores
+        
+        for pattern in all_patterns:
             if fnmatch.fnmatch(file_path, pattern):
                 return True
+        
+        # Ignore les fichiers avec des noms très problématiques
+        if any(char in file_path for char in ['📁', '🗂️', '📄']) or len(file_path) > 255:
+            self.log_message(f"Fichier ignoré (caractères problématiques): {file_path}")
+            return True
+        
         return False
 
     def scan_local_files(self):
-        """Scanne les fichiers locaux"""
+        """Scanne les fichiers locaux et détecte les suppressions"""
         vault_path = Path(self.vault_path.get())
         files_metadata = {}
         
         if not vault_path.exists():
             return files_metadata
         
+        # Scanne tous les fichiers existants
+        current_files = set()
         for file_path in vault_path.rglob('*'):
             if file_path.is_file():
-                relative_path = str(file_path.relative_to(vault_path))
+                relative_path = str(file_path.relative_to(vault_path)).replace('\\', '/')
                 if not self.should_ignore_file(relative_path):
+                    current_files.add(relative_path)
                     metadata = self.get_file_metadata(str(file_path))
                     if metadata:
+                        metadata.path = relative_path  # Normalise le chemin
                         files_metadata[relative_path] = metadata
+        
+        # Détecte les fichiers supprimés (présents dans DB mais plus sur disque)
+        with sqlite3.connect(self.db.db_path) as conn:
+            # Récupère tous les fichiers actifs de la DB
+            rows = conn.execute("""
+                SELECT path FROM file_metadata 
+                WHERE status = 'active'
+            """).fetchall()
+            
+            tracked_active_files = {row[0] for row in rows}
+        
+        # Fichiers qui étaient trackés mais n'existent plus
+        deleted_files = tracked_active_files - current_files
+        
+        if deleted_files:
+            self.log_message(f"🔍 Détecté {len(deleted_files)} fichier(s) supprimé(s): {list(deleted_files)}")
+            
+            for deleted_file in deleted_files:
+                # Récupère les métadonnées avant de marquer comme supprimé
+                existing_meta = self.db.get_file_metadata(deleted_file)
+                if existing_meta:
+                    self.db.mark_file_deleted(
+                        deleted_file, 
+                        existing_meta.size, 
+                        existing_meta.hash
+                    )
+                    self.log_message(f"🗑️ Marqué comme supprimé: {deleted_file}")
         
         return files_metadata
 
@@ -643,7 +1253,7 @@ class ObsidianVaultManager:
             
             for entry in entries:
                 if hasattr(entry, 'content_hash'):
-                    relative_path = entry.path_display[7:]
+                    relative_path = entry.path_display[7:]  # Enlève "/vault/"
                     if not self.should_ignore_file(relative_path):
                         files_metadata[relative_path] = FileMetadata(
                             path=relative_path,
@@ -668,6 +1278,7 @@ class ObsidianVaultManager:
             db_meta = self.db.get_file_metadata(file_path)
             
             if local_meta and remote_meta:
+                # Fichier existe des deux côtés
                 if local_meta.hash != remote_meta.hash:
                     if local_meta.mtime > remote_meta.mtime:
                         actions.append(SyncAction(
@@ -684,6 +1295,7 @@ class ObsidianVaultManager:
                             reason="Version distante plus récente"
                         ))
             elif local_meta and not remote_meta:
+                # Fichier local uniquement
                 actions.append(SyncAction(
                     action='upload',
                     local_path=file_path,
@@ -691,12 +1303,18 @@ class ObsidianVaultManager:
                     reason="Nouveau fichier local"
                 ))
             elif not local_meta and remote_meta:
-                actions.append(SyncAction(
-                    action='download',
-                    local_path=file_path,
-                    remote_path=f"/vault/{file_path}",
-                    reason="Nouveau fichier distant"
-                ))
+                # Fichier distant uniquement - vérifier s'il a été supprimé localement
+                if self.db.get_file_metadata(file_path):
+                    # Le fichier était suivi et n'existe plus localement = supprimé
+                    pass  # Sera géré par check_and_handle_deletions
+                else:
+                    # Nouveau fichier distant
+                    actions.append(SyncAction(
+                        action='download',
+                        local_path=file_path,
+                        remote_path=f"/vault/{file_path}",
+                        reason="Nouveau fichier distant"
+                    ))
         
         return actions
 
@@ -734,23 +1352,6 @@ class ObsidianVaultManager:
         self.log_message(f"Synchronisation terminée: {total_actions} actions")
         
         self.root.after(2000, lambda: self.progress_bar.set(0))
-
-    def upload_file(self, local_path: str, remote_path: str):
-        """Upload un fichier vers Dropbox"""
-        vault_path = Path(self.vault_path.get())
-        full_local_path = vault_path / local_path
-        
-        try:
-            dbx = self.get_dropbox_client()
-            with open(full_local_path, 'rb') as f:
-                dbx.files_upload(f.read(), remote_path, mode=dropbox.files.WriteMode.overwrite)
-            
-            metadata = self.get_file_metadata(str(full_local_path))
-            if metadata:
-                self.db.save_file_metadata(metadata)
-        
-        except Exception as e:
-            raise Exception(f"Erreur upload {local_path}: {e}")
 
     def sanitize_path(self, file_path: str) -> str:
         """Nettoie et normalise les chemins pour Dropbox"""
@@ -847,33 +1448,6 @@ class ObsidianVaultManager:
         except Exception as e:
             raise Exception(f"Erreur download {local_path}: {e}")
 
-    def should_ignore_file(self, file_path: str) -> bool:
-        """Vérifie si un fichier doit être ignoré selon les patterns"""
-        ignore_patterns = self.config.get('ignore_patterns', [])
-        
-        # Ajoute des patterns pour les fichiers problématiques
-        default_ignores = [
-            '*.tmp',
-            '*.bak',
-            '.DS_Store',
-            'Thumbs.db',
-            '.obsidian/workspace*',  # Souvent modifié et pas essentiel
-            '.trash/*'
-        ]
-        
-        all_patterns = ignore_patterns + default_ignores
-        
-        for pattern in all_patterns:
-            if fnmatch.fnmatch(file_path, pattern):
-                return True
-        
-        # Ignore les fichiers avec des noms très problématiques
-        if any(char in file_path for char in ['📁', '🗂️', '📄']) or len(file_path) > 255:
-            self.log_message(f"Fichier ignoré (caractères problématiques): {file_path}")
-            return True
-        
-        return False
-
     def browse_vault_folder(self):
         """Sélection du dossier vault"""
         folder = filedialog.askdirectory(title="Sélectionner le dossier Vault Obsidian")
@@ -959,6 +1533,9 @@ class ObsidianVaultManager:
             try:
                 self.log_message("Début synchronisation complète")
                 
+                # Vérifie d'abord les suppressions
+                self.check_and_handle_deletions()
+                
                 self.log_message("Scan des fichiers locaux...")
                 local_files = self.scan_local_files()
                 
@@ -976,7 +1553,7 @@ class ObsidianVaultManager:
                 self.sync_status.configure(text="Erreur de sync")
             finally:
                 self.sync_in_progress = False
-                self.sync_btn.configure(state="normal", text="Synchroniser")
+                self.sync_btn.configure(state="normal", text="Synchronize")
                 if not self.auto_sync.get() and not self.real_time_sync.get():
                     self.sync_status.configure(text="Prêt")
         
