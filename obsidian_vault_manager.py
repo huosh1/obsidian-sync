@@ -87,7 +87,7 @@ class DeletionConfirmDialog:
         # Fenêtre principale
         self.dialog = ctk.CTkToplevel(parent)
         self.dialog.title("Confirmer les suppressions")
-        self.dialog.geometry("1280x720")
+        self.dialog.geometry("600x500")
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
