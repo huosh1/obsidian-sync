@@ -87,7 +87,7 @@ class DeletionConfirmDialog:
         # Fenêtre principale
         self.dialog = ctk.CTkToplevel(parent)
         self.dialog.title("Confirmer les suppressions")
-        self.dialog.geometry("600x500")
+        self.dialog.geometry("1280x720")
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
@@ -519,7 +519,7 @@ class ObsidianVaultManager:
         # Interface
         self.root = ctk.CTk()
         self.root.title("Obsidian Vault Manager")
-        self.root.geometry("900x650")
+        self.root.geometry("1280x720")
         
         # Variables
         self.vault_path = tk.StringVar(value=self.config.get('vault_path', ''))
